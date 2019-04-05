@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,6 +126,7 @@ func ExampleProcess() {
 		}
 
 		interruptedChan := make(chan struct{})
+		println(interruptedChan)
 		done := make(chan struct{})
 
 		go func() {
@@ -228,12 +229,6 @@ func ExampleProcess() {
 	// interrupted
 }
 
-func TestNonBlockingClose(t *testing.T) {
-	j, err := NewJobQuery("redis://localhost:6379")
-	require.NoError(t, err)
-	j.Close()
-}
-
 func TestChannelAPI(t *testing.T) {
 	redisDSN := "redis://localhost:6379"
 
@@ -250,6 +245,7 @@ func TestChannelAPI(t *testing.T) {
 		defer j.Close()
 
 		interruptedChan := j.CheckInterrupted(jobID)
+		println(interruptedChan)
 		processChan := j.ReceiveProgress(jobID)
 
 		// emulate a long running task
@@ -296,7 +292,7 @@ func TestChannelAPI(t *testing.T) {
 			pi, _ := strconv.Atoi(progress)
 			// because the actual progress will run faster than the checking
 			// if synchronized behaviour is expected, check the above example
-			assert.True(t, i < pi, "progress")
+			assert.Truef(t, i < pi, "progress: %v, got: %v", i, pi)
 			i++
 		}
 		if i >= 10 {
@@ -308,4 +304,10 @@ func TestChannelAPI(t *testing.T) {
 	v, err := r.Get(10 * time.Millisecond)
 	require.NoError(t, err)
 	assert.Equal(t, "interrupted", v[0].String(), "message from task function")
+}
+
+func TestNonBlockingClose(t *testing.T) {
+	j, err := NewJobQuery("redis://localhost:6379")
+	require.NoError(t, err)
+	j.Close()
 }

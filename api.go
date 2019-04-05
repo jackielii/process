@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RichardKnop/machinery/v1"
-	"github.com/RichardKnop/machinery/v1/backends/result"
-	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/gomodule/redigo/redis"
+	"github.com/jackielii/machinery/v1"
+	"github.com/jackielii/machinery/v1/backends/result"
+	"github.com/jackielii/machinery/v1/config"
+	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/pkg/errors"
 )
 
