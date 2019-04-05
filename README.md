@@ -1,7 +1,7 @@
 # process
 
 [![](https://godoc.org/github.com/jackielii/process?status.svg)](https://godoc.org/github.com/jackielii/process)
-
+[![Build Status](https://travis-ci.com/jackielii/process.svg?branch=master)](https://travis-ci.com/jackielii/process)
 process adds interruptable & setting-progress capability to [machinery](https://github.com/RichardKnop/machinery/) lib.
 
 Until [this PR](https://github.com/RichardKnop/machinery/pull/401) is merged, we have to use my fork
