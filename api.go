@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/backends/result"
@@ -62,17 +63,17 @@ func New(redisDSN string) (*Process, error) {
 	return p, nil
 }
 
-func (p *Process) prePublish(sig *tasks.Signature) {
+func (p Process) prePublish(sig *tasks.Signature) {
 }
 
 // Wait waits for the process to finish
 // unless Quit() is called or Interrupt signal is send, the process won't exit
-func (p *Process) Wait() error {
+func (p Process) Wait() error {
 	return <-p.errChan
 }
 
 // Register registers a function as a runnable function in the process
-func (p *Process) Register(funcName string, function interface{}) error {
+func (p Process) Register(funcName string, function interface{}) error {
 	err := p.server.RegisterTask(funcName, function)
 	if err != nil {
 		return errors.Wrap(err, "register process")
@@ -81,7 +82,7 @@ func (p *Process) Register(funcName string, function interface{}) error {
 }
 
 // Call calls a registered function, the arguments needs to be in the machinery []Arg format
-func (p *Process) Call(funcName string, args []tasks.Arg) (jobID string, err error) {
+func (p Process) Call(funcName string, args []tasks.Arg) (jobID string, err error) {
 	sig, err := tasks.NewSignature(funcName, args)
 	if err != nil {
 		return "", errors.Wrap(err, "process call")
@@ -96,12 +97,12 @@ func (p *Process) Call(funcName string, args []tasks.Arg) (jobID string, err err
 }
 
 // GetResult retrives a AsyncResult using the jobID
-func (p *Process) GetResult(jobID string) *result.AsyncResult {
+func (p Process) GetResult(jobID string) *result.AsyncResult {
 	return result.NewAsyncResult(&tasks.Signature{UUID: jobID}, p.server.GetBackend())
 }
 
 // GetJobQuery is a helper that returns a job query
-func (p *Process) GetJobQuery() *JobQuery {
+func (p Process) GetJobQuery() *JobQuery {
 	return p.jobQuery
 }
 
@@ -109,6 +110,7 @@ func (p *Process) GetJobQuery() *JobQuery {
 type JobQuery struct {
 	redisConn redis.Conn
 	redisLock *sync.Mutex
+	done      chan struct{}
 }
 
 // NewJobQuery returns a new job query
@@ -117,15 +119,26 @@ func NewJobQuery(redisDSN string) (*JobQuery, error) {
 	if err != nil {
 		return nil, err
 	}
+	done := make(chan struct{})
 	return &JobQuery{
 		redisConn: redisConn,
 		redisLock: &sync.Mutex{},
+		done:      done,
 	}, nil
+}
+
+// Close cleans up the goroutines if any
+func (p JobQuery) Close() error {
+	select {
+	case p.done <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // Interrupt sends a interrupt signal to the running job.
 // If the job implements subscribes to the job event, it should exit
-func (p *JobQuery) Interrupt(jobID string) error {
+func (p JobQuery) Interrupt(jobID string) error {
 	c := p.redisConn
 	p.redisLock.Lock()
 	defer p.redisLock.Unlock()
@@ -145,8 +158,8 @@ func (p *JobQuery) Interrupt(jobID string) error {
 	return err
 }
 
-// Interrupted checks if the job is interrpted
-func (p *JobQuery) Interrupted(jobID string) bool {
+// Interrupted checks if the job is interrupted synchronously
+func (p JobQuery) Interrupted(jobID string) bool {
 	p.redisLock.Lock()
 	defer p.redisLock.Unlock()
 	c := p.redisConn
@@ -155,13 +168,37 @@ func (p *JobQuery) Interrupted(jobID string) bool {
 		println(err.Error())
 		return false
 	}
-	// spew.Dump("interrupted for jobID", jobID, v)
 	return v != ""
+}
+
+// CheckInterrupted will notify the interruptChan if the job is interrupted
+func (p JobQuery) CheckInterrupted(jobID string) <-chan struct{} {
+	interruptedChan := make(chan struct{})
+	go func() {
+		// defer func() {
+		//     fmt.Println("check interrupted exited")
+		// }()
+		for {
+			interrupted := p.Interrupted(jobID)
+			if interrupted {
+				interruptedChan <- struct{}{}
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+
+			select {
+			case <-p.done:
+				return
+			default:
+			}
+		}
+	}()
+	return interruptedChan
 }
 
 // SetProgress sets the progress for a job
 // progress will expire in 1 minute
-func (p *JobQuery) SetProgress(jobID string, progress string) error {
+func (p JobQuery) SetProgress(jobID string, progress string) error {
 	p.redisLock.Lock()
 	defer p.redisLock.Unlock()
 
@@ -182,8 +219,29 @@ func (p *JobQuery) SetProgress(jobID string, progress string) error {
 	return nil
 }
 
+// ReceiveProgress returns a receive only channel, and progress send to this channel will be set
+// Note that the error of the set progress is ignored
+// send to done channel cleans it up
+func (p JobQuery) ReceiveProgress(jobID string) chan<- string {
+	// defer func() {
+	//     fmt.Println("check progress exited")
+	// }()
+	ch := make(chan string)
+	go func() {
+		for {
+			select {
+			case progress := <-ch:
+				p.SetProgress(jobID, progress)
+			case <-p.done:
+				return
+			}
+		}
+	}()
+	return ch
+}
+
 // CheckProgress returns the progress if the job implements progress
-func (p *JobQuery) CheckProgress(jobID string) (progress string, err error) {
+func (p JobQuery) CheckProgress(jobID string) (progress string, err error) {
 	p.redisLock.Lock()
 	defer p.redisLock.Unlock()
 
