@@ -6,7 +6,7 @@ process adds interruptable & setting-progress capability to [machinery](https://
 
 Until [this PR](https://github.com/RichardKnop/machinery/pull/401) is merged, we have to use my fork
 
-Example usage: see [api_test.go]()
+Example usage: see [api_test.go](https://github.com/jackielii/process/blob/master/api_test.go)
 
 ```go
 
