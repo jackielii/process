@@ -38,7 +38,7 @@ func TestNewProcess(t *testing.T) {
 		if rs != nil {
 			break
 		}
-		progress, err := j.CheckProgress(jobID)
+		progress, err := j.GetProgress(jobID)
 		require.NoError(t, err)
 		if progress != prevProgress {
 			prevProgress = progress
@@ -192,7 +192,7 @@ func ExampleProcess() {
 		if rs != nil {
 			break
 		}
-		progress, err := j.CheckProgress(jobID)
+		progress, err := j.GetProgress(jobID)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -245,9 +245,9 @@ func TestChannelAPI(t *testing.T) {
 		}
 		defer j.Close()
 
-		interruptedChan := j.CheckInterrupted(jobID)
+		interruptedChan := j.InterruptedChan(jobID)
 		println(interruptedChan)
-		processChan := j.ReceiveProgress(jobID)
+		processChan := j.ProgressChan(jobID)
 
 		// emulate a long running task
 		for i := 0; i < 100; i++ {
@@ -286,7 +286,7 @@ func TestChannelAPI(t *testing.T) {
 		if rs != nil {
 			break
 		}
-		progress, err := j.CheckProgress(jobID)
+		progress, err := j.GetProgress(jobID)
 		require.NoError(t, err)
 		if progress != prevProgress {
 			prevProgress = progress

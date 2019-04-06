@@ -177,8 +177,8 @@ func (p JobQuery) Interrupted(jobID string) bool {
 	return v != ""
 }
 
-// CheckInterrupted will notify the interruptChan if the job is interrupted
-func (p JobQuery) CheckInterrupted(jobID string) <-chan struct{} {
+// InterruptedChan will notify the interruptChan if the job is interrupted
+func (p JobQuery) InterruptedChan(jobID string) <-chan struct{} {
 	interruptedChan := make(chan struct{})
 	go func() {
 		// defer func() {
@@ -226,10 +226,10 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 	return nil
 }
 
-// ReceiveProgress returns a receive only channel, and progress send to this channel will be set
+// ProgressChan returns a receive only channel, and progress send to this channel will be set
 // Note that the error of the set progress is ignored
 // send to done channel cleans it up
-func (p JobQuery) ReceiveProgress(jobID string) chan<- string {
+func (p JobQuery) ProgressChan(jobID string) chan<- string {
 	// defer func() {
 	//     fmt.Println("check progress exited")
 	// }()
@@ -247,8 +247,8 @@ func (p JobQuery) ReceiveProgress(jobID string) chan<- string {
 	return ch
 }
 
-// CheckProgress returns the progress if the job implements progress
-func (p JobQuery) CheckProgress(jobID string) (progress string, err error) {
+// GetProgress returns the progress if the job implements progress
+func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 	c := p.redisConn
 
 	p.redisLock.Lock()

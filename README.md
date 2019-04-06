@@ -25,8 +25,8 @@ task := func(ctx context.Context, msg string) (string, error) {
 	}
 	defer j.Close()
 
-	interruptedChan := j.CheckInterrupted(jobID)
-	processChan := j.ReceiveProgress(jobID)
+	interruptedChan := j.InterruptedChan(jobID)
+	processChan := j.ProgressChan(jobID)
 
 	// emulate a long running task
 	for i := 0; i < 100; i++ {
