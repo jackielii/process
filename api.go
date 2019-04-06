@@ -108,7 +108,7 @@ func (p Process) GetJobQuery() *JobQuery {
 
 // JobQuery is a redis conn with lock
 type JobQuery struct {
-	redisConn redis.Conn
+	redisConn redis.Conn // TODO: use redis.Pool
 	redisLock *sync.Mutex
 	done      chan struct{}
 }
