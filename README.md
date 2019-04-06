@@ -62,7 +62,7 @@ for {
 	if rs != nil {
 		break
 	}
-	progress, err := j.CheckProgress(jobID)
+	progress, err := j.GetProgress(jobID)
 	require.NoError(t, err)
 	if progress != prevProgress {
 		prevProgress = progress
