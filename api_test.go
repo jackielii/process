@@ -18,9 +18,9 @@ func TestNewProcess(t *testing.T) {
 	redisDSN := "redis://localhost:6379"
 	p, err := New(redisDSN)
 	require.NoError(t, err)
-	err = p.Register("call", task)
+	err = p.Register("callNew", task)
 	require.NoError(t, err)
-	jobID, err := p.Call("call", []tasks.Arg{
+	jobID, err := p.Call("callNew", []tasks.Arg{
 		{
 			Type:  "string",
 			Value: "sending arg1",
@@ -57,7 +57,7 @@ func TestNewProcess(t *testing.T) {
 	assert.Equal(t, "interrupted", v[0].String(), "message from task function")
 
 	// test normal
-	jobID, err = p.Call("call", []tasks.Arg{
+	jobID, err = p.Call("callNew", []tasks.Arg{
 		{
 			Type:  "string",
 			Value: "sending arg1",
@@ -124,6 +124,7 @@ func ExampleProcess() {
 		if err != nil {
 			return "", err
 		}
+		defer p.Close()
 
 		interruptedChan := make(chan struct{})
 		println(interruptedChan)
@@ -165,11 +166,11 @@ func ExampleProcess() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = p.Register("call", task)
+	err = p.Register("callExample", task)
 	if err != nil {
 		log.Fatal(err)
 	}
-	jobID, err := p.Call("call", []tasks.Arg{
+	jobID, err := p.Call("callExample", []tasks.Arg{
 		{
 			Type:  "string",
 			Value: "hello from machinery",
@@ -265,9 +266,9 @@ func TestChannelAPI(t *testing.T) {
 
 	p, err := New(redisDSN)
 	require.NoError(t, err)
-	err = p.Register("call", task)
+	err = p.Register("callChannel", task)
 	require.NoError(t, err)
-	jobID, err := p.Call("call", []tasks.Arg{
+	jobID, err := p.Call("callChannel", []tasks.Arg{
 		{
 			Type:  "string",
 			Value: "sending arg1",

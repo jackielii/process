@@ -6,12 +6,12 @@ package process
 import (
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/jackielii/machinery/v1"
 	"github.com/jackielii/machinery/v1/backends/result"
-	"github.com/jackielii/machinery/v1/common"
 	"github.com/jackielii/machinery/v1/config"
 	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/pkg/errors"
@@ -108,21 +108,23 @@ func (p Process) GetJobQuery() *JobQuery {
 
 // JobQuery is a redis conn with lock
 type JobQuery struct {
-	redisPool *redis.Pool
-	// redisLock *sync.Mutex
-	done chan struct{}
+	redisConn redis.Conn
+	redisLock *sync.Mutex
+	done      chan struct{}
 }
 
 // NewJobQuery returns a new job query
 func NewJobQuery(redisDSN string) (*JobQuery, error) {
-	c := &common.RedisConnector{}
 	host := strings.Replace(redisDSN, "redis://", "", -1)
-	redisPool := c.NewPool("", host, "", 0, nil, nil)
+	redisConn, err := redis.Dial("tcp", host)
+	if err != nil {
+		return nil, err
+	}
 	done := make(chan struct{})
 	return &JobQuery{
-		redisPool: redisPool,
-		// redisLock: &sync.Mutex{},
-		done: done,
+		redisConn: redisConn,
+		redisLock: &sync.Mutex{},
+		done:      done,
 	}, nil
 }
 
@@ -132,17 +134,18 @@ func (p JobQuery) Close() error {
 	case p.done <- struct{}{}:
 	default:
 	}
-	return p.redisPool.Close()
+	return p.redisConn.Close()
 	// return nil
 }
 
 // Interrupt sends a interrupt signal to the running job.
 // If the job implements subscribes to the job event, it should exit
 func (p JobQuery) Interrupt(jobID string) error {
-	c := p.redisPool.Get()
-	defer c.Close()
-	// p.redisLock.Lock()
-	// defer p.redisLock.Unlock()
+	c := p.redisConn
+
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
 	err := c.Send("SET", interruptSubject(jobID), "interrupt")
 	if err != nil {
 		return err
@@ -161,10 +164,11 @@ func (p JobQuery) Interrupt(jobID string) error {
 
 // Interrupted checks if the job is interrupted synchronously
 func (p JobQuery) Interrupted(jobID string) bool {
-	// p.redisLock.Lock()
-	// defer p.redisLock.Unlock()
-	c := p.redisPool.Get()
-	defer c.Close()
+	c := p.redisConn
+
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
 	v, err := redis.String(c.Do("GET", interruptSubject(jobID)))
 	if err != nil && err != redis.ErrNil {
 		println(err.Error())
@@ -201,11 +205,11 @@ func (p JobQuery) CheckInterrupted(jobID string) <-chan struct{} {
 // SetProgress sets the progress for a job
 // progress will expire in 1 minute
 func (p JobQuery) SetProgress(jobID string, progress string) error {
-	// p.redisLock.Lock()
-	// defer p.redisLock.Unlock()
+	c := p.redisConn
 
-	c := p.redisPool.Get()
-	defer c.Close()
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
 	err := c.Send("SET", progressSubject(jobID), progress)
 	if err != nil {
 		return err
@@ -245,10 +249,11 @@ func (p JobQuery) ReceiveProgress(jobID string) chan<- string {
 
 // CheckProgress returns the progress if the job implements progress
 func (p JobQuery) CheckProgress(jobID string) (progress string, err error) {
-	// p.redisLock.Lock()
-	// defer p.redisLock.Unlock()
+	c := p.redisConn
 
-	c := p.redisPool.Get()
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
 	s, err := redis.String(c.Do("GET", progressSubject(jobID)))
 	if err != nil && err != redis.ErrNil {
 		return "", err
