@@ -72,6 +72,12 @@ func (p Process) Wait() error {
 	return <-p.errChan
 }
 
+// Close closes all the workers
+func (p Process) Close() error {
+	p.worker.Quit()
+	return nil
+}
+
 // Register registers a function as a runnable function in the process
 func (p Process) Register(funcName string, function interface{}) error {
 	err := p.server.RegisterTask(funcName, function)
