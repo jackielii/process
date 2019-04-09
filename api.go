@@ -23,6 +23,8 @@ type Process struct {
 	errChan  chan error
 	worker   *machinery.Worker
 	jobQuery *JobQuery
+
+	closed bool
 }
 
 // New create a new process package, convention similiar to python's subprocess package
@@ -60,6 +62,8 @@ func New(redisDSN string) (*Process, error) {
 	}
 	server.SetPreTaskHandler(p.prePublish)
 
+	runtime.SetFinalizer(p, (*Process).Wait)
+
 	return p, nil
 }
 
@@ -68,14 +72,23 @@ func (p Process) prePublish(sig *tasks.Signature) {
 
 // Wait waits for the process to finish
 // unless Quit() is called or Interrupt signal is send, the process won't exit
-func (p Process) Wait() error {
-	return <-p.errChan
+func (p *Process) Wait() error {
+	return p.WaitFor(1 * time.Minute)
 }
 
-// Close closes all the workers
-func (p Process) Close() error {
-	p.worker.Quit()
-	return nil
+// WaitFor waits for duration before exit
+func (p *Process) WaitFor(d time.Duration) error {
+	if p.closed {
+		return nil
+	}
+	select {
+	case err := <-p.errChan:
+		runtime.SetFinalizer(p, nil)
+		p.closed = true
+		return err
+	case <-time.Tick(d):
+		return errors.New("timeout exceeded")
+	}
 }
 
 // Register registers a function as a runnable function in the process
