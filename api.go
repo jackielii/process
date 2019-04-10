@@ -107,7 +107,6 @@ func (p Process) Invoke(f interface{}, args []tasks.Arg) (jobID string, err erro
 		return "", errors.New("f is not a function")
 	}
 	funcName := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
-	println(funcName)
 	registered := p.server.IsTaskRegistered(funcName)
 	if !registered {
 		err = p.server.RegisterTask(funcName, f)
