@@ -143,6 +143,26 @@ func (p Process) GetJobQuery() *JobQuery {
 	return p.jobQuery
 }
 
+// Interrupt sends interrupt signal
+func (p Process) Interrupt(jobID string) error {
+	s := p.GetResult(jobID).GetState()
+
+	if s.TaskUUID != jobID {
+		return errors.New("unknow job")
+	}
+	return p.jobQuery.Interrupt(jobID)
+}
+
+// GetProgress retrieves the progress
+func (p Process) GetProgress(jobID string) (string, error) {
+	s := p.GetResult(jobID).GetState()
+
+	if s.TaskUUID != jobID {
+		return "", errors.New("unknow job")
+	}
+	return p.jobQuery.GetProgress(jobID)
+}
+
 // JobQuery is a redis conn with lock
 type JobQuery struct {
 	redisConn redis.Conn // TODO: use redis.Pool
@@ -167,12 +187,8 @@ func NewJobQuery(redisDSN string) (*JobQuery, error) {
 
 // Close cleans up the goroutines if any
 func (p JobQuery) Close() error {
-	select {
-	case p.done <- struct{}{}:
-	default:
-	}
+	close(p.done)
 	return p.redisConn.Close()
-	// return nil
 }
 
 // Interrupt sends a interrupt signal to the running job.

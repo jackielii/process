@@ -319,7 +319,7 @@ func TestGracefulWait(t *testing.T) {
 	require.NoError(t, err)
 	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 	err = p.Wait()
-	require.NoError(t, err)
+	assert.EqualError(t, err, "Worker quit gracefully")
 }
 
 func TestInvoke(t *testing.T) {
