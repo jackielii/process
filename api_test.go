@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -311,4 +312,35 @@ func TestNonBlockingClose(t *testing.T) {
 	j, err := NewJobQuery("redis://localhost:6379")
 	require.NoError(t, err)
 	j.Close()
+}
+
+func TestGracefulWait(t *testing.T) {
+	p, err := New("redis://localhost:6379")
+	require.NoError(t, err)
+	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+	err = p.Wait()
+	require.NoError(t, err)
+}
+
+func TestInvoke(t *testing.T) {
+	p, err := New("redis://localhost:6379")
+	require.NoError(t, err)
+	task := func(msg string) (string, error) {
+		return "received " + msg, nil
+	}
+
+	jobID, err := p.Invoke(task, []tasks.Arg{
+		{
+			Type:  "string",
+			Value: "test invoke",
+		},
+	})
+	require.NoError(t, err)
+
+	r := p.GetResult(jobID)
+	v, err := r.Get(1 * time.Millisecond)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(v), "length of the returned results")
+	assert.Equal(t, "received test invoke", v[0].String())
 }

@@ -4,6 +4,7 @@
 package process
 
 import (
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -98,6 +99,24 @@ func (p Process) Register(funcName string, function interface{}) error {
 		return errors.Wrap(err, "register process")
 	}
 	return nil
+}
+
+// Invoke registers the func with it's reflect name, and sends the task
+func (p Process) Invoke(f interface{}, args []tasks.Arg) (jobID string, err error) {
+	if reflect.TypeOf(f).Kind() != reflect.Func {
+		return "", errors.New("f is not a function")
+	}
+	funcName := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
+	println(funcName)
+	registered := p.server.IsTaskRegistered(funcName)
+	if !registered {
+		err = p.server.RegisterTask(funcName, f)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return p.Call(funcName, args)
 }
 
 // Call calls a registered function, the arguments needs to be in the machinery []Arg format
