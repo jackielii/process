@@ -4,6 +4,7 @@
 package process
 
 import (
+	"encoding/json"
 	"reflect"
 	"runtime"
 	"strings"
@@ -314,10 +315,121 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 	return s, nil
 }
 
+// AddHeaders adds headers to the job store
+func (p JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error {
+	for key, value := range headers {
+		err := p.AddHeader(jobID, key, value, 0)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddHeader persists data into redis so that it can be retrieved later
+func (p JobQuery) AddHeader(jobID string, key string, value interface{}, expire time.Duration) (err error) {
+	c := p.redisConn
+
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
+	if expire == 0 {
+		expire = 24 * time.Hour
+	}
+
+	headers := make(map[string]interface{})
+
+	hs := headerSubject(jobID)
+	data, err := redis.Bytes(c.Do("GET", hs))
+	if err != nil && err != redis.ErrNil {
+		return errors.Wrap(err, "add header")
+	}
+	if data != nil {
+		err = json.Unmarshal(data, &headers)
+		if err != nil {
+			return errors.Wrap(err, "add header")
+		}
+	}
+
+	headers[key] = value
+	data, err = json.Marshal(headers)
+	if err != nil {
+		return errors.Wrap(err, "add header")
+	}
+
+	err = c.Send("SET", hs, data)
+	if err != nil {
+		return errors.Wrap(err, "add header")
+	}
+	err = c.Send("EXPIRE", hs, int(expire/time.Second))
+	if err != nil {
+		return errors.Wrap(err, "add header")
+	}
+	err = c.Flush()
+	if err != nil {
+		return errors.Wrap(err, "add header")
+	}
+	return nil
+}
+
+// GetHeader gets the header
+func (p JobQuery) GetHeader(jobID, key string) (interface{}, error) {
+	headers := make(map[string]interface{})
+	err := p.UnmarshalHeaders(jobID, &headers)
+	if err != nil {
+		return nil, errors.Wrap(err, "get header")
+	}
+	header, ok := headers[key]
+	if !ok {
+		return nil, errors.New("key doesn't exist")
+	}
+
+	return header, nil
+}
+
+// UnmarshalHeader unmarshal the header with key
+func (p JobQuery) UnmarshalHeader(jobID, key string, v interface{}) error {
+	headers := make(map[string]json.RawMessage)
+	err := p.UnmarshalHeaders(jobID, &headers)
+	if err != nil {
+		return err
+	}
+
+	header, ok := headers[key]
+	if !ok {
+		return errors.New("key doesn't exist")
+	}
+
+	return errors.Wrap(json.Unmarshal(header, v), "unmarshal header")
+}
+
+// UnmarshalHeaders unmarshals the headers
+func (p JobQuery) UnmarshalHeaders(jobID string, v interface{}) error {
+	c := p.redisConn
+
+	p.redisLock.Lock()
+	defer p.redisLock.Unlock()
+
+	data, err := redis.Bytes(c.Do("GET", headerSubject(jobID)))
+	if err != nil {
+		return errors.Wrap(err, "get header")
+	}
+
+	err = json.Unmarshal(data, &v)
+	if err != nil {
+		return errors.Wrap(err, "get header")
+	}
+	return nil
+}
+
 func progressSubject(jobID string) string {
 	return "progress_" + jobID
 }
 
 func interruptSubject(jobID string) string {
 	return "interrupt_" + jobID
+}
+
+func headerSubject(jobID string) string {
+	return "headers_" + jobID
 }

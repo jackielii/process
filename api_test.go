@@ -344,3 +344,30 @@ func TestInvoke(t *testing.T) {
 	require.Equal(t, 1, len(v), "length of the returned results")
 	assert.Equal(t, "received test invoke", v[0].String())
 }
+
+func TestHeaders(t *testing.T) {
+	jobID := "hellojob"
+	jq, err := NewJobQuery("redis://localhost:6379")
+	require.NoError(t, err)
+	defer jq.Close()
+
+	err = jq.AddHeaders(jobID, map[string]interface{}{
+		"hello": "world",
+		"foo": struct {
+			Bar string
+		}{
+			Bar: "bar",
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := jq.GetHeader(jobID, "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "world", got)
+
+	var bar struct{ Bar string }
+
+	err = jq.UnmarshalHeader(jobID, "foo", &bar)
+	require.NoError(t, err)
+	assert.Equal(t, "bar", bar.Bar)
+}
