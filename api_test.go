@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,9 @@ func TestNewProcess(t *testing.T) {
 	require.NoError(t, err)
 
 	r := p.GetResult(jobID)
-	j := p.GetJobQuery()
+	j, err := p.OpenJobQuery()
+	require.NoError(t, err)
+	defer j.Close()
 	i := 0
 	prevProgress := ""
 	for {
@@ -82,7 +85,7 @@ func task(ctx context.Context, msg string) (string, error) {
 		return "", errors.New("unable to task signature")
 	}
 	jobID := sig.UUID
-	p, err := NewJobQuery("redis://localhost:6379")
+	p, err := OpenJobQuery("redis://localhost:6379")
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +111,6 @@ func task(ctx context.Context, msg string) (string, error) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	// spew.Dump("context within the task: %v", ctx)
 	return constMsg, nil
 }
 
@@ -121,7 +123,7 @@ func ExampleProcess() {
 			return "", errors.New("unable to retrieve task signature")
 		}
 		jobID := sig.UUID
-		p, err := NewJobQuery(redisDSN)
+		p, err := OpenJobQuery(redisDSN)
 		if err != nil {
 			return "", err
 		}
@@ -182,7 +184,11 @@ func ExampleProcess() {
 	}
 
 	r := p.GetResult(jobID)
-	j := p.GetJobQuery()
+	j, err := p.OpenJobQuery()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer j.Close()
 	i := 0
 	prevProgress := ""
 	for {
@@ -240,7 +246,7 @@ func TestChannelAPI(t *testing.T) {
 			return "", errors.New("unable to retrieve task signature")
 		}
 		jobID := sig.UUID
-		j, err := NewJobQuery(redisDSN)
+		j, err := OpenJobQuery(redisDSN)
 		if err != nil {
 			return "", err
 		}
@@ -278,7 +284,8 @@ func TestChannelAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	r := p.GetResult(jobID)
-	j := p.GetJobQuery()
+	j, err := p.OpenJobQuery()
+	require.NoError(t, err)
 	i := 0
 	prevProgress := ""
 	for {
@@ -309,7 +316,7 @@ func TestChannelAPI(t *testing.T) {
 }
 
 func TestNonBlockingClose(t *testing.T) {
-	j, err := NewJobQuery("redis://localhost:6379")
+	j, err := OpenJobQuery("redis://localhost:6379")
 	require.NoError(t, err)
 	j.Close()
 }
@@ -347,7 +354,7 @@ func TestInvoke(t *testing.T) {
 
 func TestHeaders(t *testing.T) {
 	jobID := "hellojob"
-	jq, err := NewJobQuery("redis://localhost:6379")
+	jq, err := OpenJobQuery("redis://localhost:6379")
 	require.NoError(t, err)
 	defer jq.Close()
 
@@ -370,4 +377,26 @@ func TestHeaders(t *testing.T) {
 	err = jq.UnmarshalHeader(jobID, "foo", &bar)
 	require.NoError(t, err)
 	assert.Equal(t, "bar", bar.Bar)
+}
+
+func TestWithInterrupCtx(t *testing.T) {
+	jobID := uuid.New().String()
+	jq, err := OpenJobQuery("redis://localhost:6379")
+	require.NoError(t, err)
+	defer jq.Close()
+
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	ctx = jq.WithInterruptCtx(ctx, jobID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			require.Equal(t, context.Canceled, ctx.Err())
+			return
+		default:
+			jq.Interrupt(jobID)
+		}
+	}
 }

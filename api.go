@@ -4,6 +4,7 @@
 package process
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackielii/machinery/v1"
 	"github.com/jackielii/machinery/v1/backends/result"
 	"github.com/jackielii/machinery/v1/config"
+	"github.com/jackielii/machinery/v1/log"
 	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/pkg/errors"
 )
@@ -24,7 +26,7 @@ type Process struct {
 	server   *machinery.Server
 	errChan  chan error
 	worker   *machinery.Worker
-	jobQuery *JobQuery
+	redisDSN string
 
 	closed bool
 }
@@ -51,16 +53,12 @@ func New(redisDSN string) (*Process, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "init new process")
 	}
-	jobQuery, err := NewJobQuery(redisDSN)
-	if err != nil {
-		return nil, errors.Wrap(err, "init new process")
-	}
 
 	p := &Process{
 		server:   server,
 		worker:   worker,
 		errChan:  errChan,
-		jobQuery: jobQuery,
+		redisDSN: redisDSN,
 	}
 	server.SetPreTaskHandler(p.prePublish)
 
@@ -139,9 +137,9 @@ func (p Process) GetResult(jobID string) *result.AsyncResult {
 	return result.NewAsyncResult(&tasks.Signature{UUID: jobID}, p.server.GetBackend())
 }
 
-// GetJobQuery is a helper that returns a job query
-func (p Process) GetJobQuery() *JobQuery {
-	return p.jobQuery
+// OpenJobQuery is a helper that returns a new job query
+func (p Process) OpenJobQuery() (*JobQuery, error) {
+	return OpenJobQuery(p.redisDSN)
 }
 
 // Interrupt sends interrupt signal
@@ -151,7 +149,13 @@ func (p Process) Interrupt(jobID string) error {
 	if s.TaskUUID != jobID {
 		return errors.New("unknow job")
 	}
-	return p.jobQuery.Interrupt(jobID)
+	j, err := p.OpenJobQuery()
+	if err != nil {
+		return err
+	}
+	defer j.Close()
+
+	return j.Interrupt(jobID)
 }
 
 // GetProgress retrieves the progress
@@ -161,18 +165,25 @@ func (p Process) GetProgress(jobID string) (string, error) {
 	if s.TaskUUID != jobID {
 		return "", errors.New("unknow job")
 	}
-	return p.jobQuery.GetProgress(jobID)
+	j, err := p.OpenJobQuery()
+	if err != nil {
+		return "", err
+	}
+	defer j.Close()
+
+	return j.GetProgress(jobID)
 }
 
-// JobQuery is a redis conn with lock
+// JobQuery is a redis conn with lock, remember to close after open
 type JobQuery struct {
-	redisConn redis.Conn // TODO: use redis.Pool
+	redisConn redis.Conn
 	redisLock *sync.Mutex
+	wg        *sync.WaitGroup
 	done      chan struct{}
 }
 
-// NewJobQuery returns a new job query
-func NewJobQuery(redisDSN string) (*JobQuery, error) {
+// OpenJobQuery returns a new job query
+func OpenJobQuery(redisDSN string) (*JobQuery, error) {
 	host := strings.Replace(redisDSN, "redis://", "", -1)
 	redisConn, err := redis.Dial("tcp", host)
 	if err != nil {
@@ -182,6 +193,7 @@ func NewJobQuery(redisDSN string) (*JobQuery, error) {
 	return &JobQuery{
 		redisConn: redisConn,
 		redisLock: &sync.Mutex{},
+		wg:        &sync.WaitGroup{},
 		done:      done,
 	}, nil
 }
@@ -189,6 +201,7 @@ func NewJobQuery(redisDSN string) (*JobQuery, error) {
 // Close cleans up the goroutines if any
 func (p JobQuery) Close() error {
 	close(p.done)
+	p.wg.Wait()
 	return p.redisConn.Close()
 }
 
@@ -225,19 +238,50 @@ func (p JobQuery) Interrupted(jobID string) bool {
 
 	v, err := redis.String(c.Do("GET", interruptSubject(jobID)))
 	if err != nil && err != redis.ErrNil {
-		println(err.Error())
 		return false
 	}
 	return v != ""
 }
 
+// WithInterruptCtx will cancel context if interrupted
+func (p JobQuery) WithInterruptCtx(ctx context.Context, jobID string) context.Context {
+	ctx, cancel := context.WithCancel(ctx)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		defer cancel()
+		// defer func() {
+		//     fmt.Println("check interrupted exited")
+		// }()
+		for {
+			interrupted := p.Interrupted(jobID)
+			if interrupted {
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+
+			select {
+			case <-p.done:
+				return
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+	}()
+	return ctx
+}
+
 // InterruptedChan will notify the interruptChan if the job is interrupted
 func (p JobQuery) InterruptedChan(jobID string) <-chan struct{} {
 	interruptedChan := make(chan struct{})
+	p.wg.Add(1)
 	go func() {
 		// defer func() {
 		//     fmt.Println("check interrupted exited")
 		// }()
+		defer p.wg.Done()
 		for {
 			interrupted := p.Interrupted(jobID)
 			if interrupted {
@@ -280,6 +324,31 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 	return nil
 }
 
+// // WithCtx returns a new context with interrupt & progress injected
+// func (p JobQuery) WithCtx(ctx context.Context, jobID string) context.Context {
+//     ctx = p.WithInterruptCtx(ctx, jobID)
+//     return p.WithProgressChanCtx(ctx, jobID)
+// }
+//
+// type progressCtxType struct{}
+//
+// var progressCtxKey progressCtxType
+//
+// // ProgressChanFromCtx returns the progress receive only channel if in the context
+// func ProgressChanFromCtx(ctx context.Context) chan<- string {
+//     v := ctx.Value(progressCtxKey)
+//     if v == nil {
+//         return nil
+//     }
+//     return v.(chan<- string)
+// }
+//
+// // WithProgressChanCtx returns new context with progress channel injected
+// func (p JobQuery) WithProgressChanCtx(ctx context.Context, jobID string) context.Context {
+//     ch := p.ProgressChan(jobID)
+//     return context.WithValue(ctx, progressCtxKey, ch)
+// }
+
 // ProgressChan returns a receive only channel, and progress send to this channel will be set
 // Note that the error of the set progress is ignored
 // send to done channel cleans it up
@@ -288,11 +357,16 @@ func (p JobQuery) ProgressChan(jobID string) chan<- string {
 	//     fmt.Println("check progress exited")
 	// }()
 	ch := make(chan string)
+	p.wg.Add(1)
 	go func() {
+		defer p.wg.Done()
 		for {
 			select {
 			case progress := <-ch:
-				p.SetProgress(jobID, progress)
+				err := p.SetProgress(jobID, progress)
+				if err != nil {
+					log.WARNING.Printf("failed to set progress for job id %s: %s, err: %v", jobID, progress, err)
+				}
 			case <-p.done:
 				return
 			}
@@ -318,7 +392,7 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 // AddHeaders adds headers to the job store
 func (p JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error {
 	for key, value := range headers {
-		err := p.AddHeader(jobID, key, value, 0)
+		err := p.AddHeader(jobID, key, value)
 		if err != nil {
 			return err
 		}
@@ -326,16 +400,16 @@ func (p JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error
 	return nil
 }
 
-// AddHeader persists data into redis so that it can be retrieved later
-func (p JobQuery) AddHeader(jobID string, key string, value interface{}, expire time.Duration) (err error) {
+// AddHeader persists data into redis so that it can be retrieved by GetHeader
+func (p JobQuery) AddHeader(jobID string, key string, value interface{}) (err error) {
 	c := p.redisConn
 
 	p.redisLock.Lock()
 	defer p.redisLock.Unlock()
 
-	if expire == 0 {
-		expire = 24 * time.Hour
-	}
+	// TODO: expire should be automatic set with jobQuery,
+	// consider add expire on get
+	expire := 24 * time.Hour
 
 	headers := make(map[string]interface{})
 
