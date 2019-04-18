@@ -91,6 +91,22 @@ func (p *Process) WaitFor(d time.Duration) error {
 	}
 }
 
+// RegisterFunc registers the function using it's reflection name
+func (p Process) RegisterFunc(function interface{}) (funcName string, err error) {
+	if reflect.TypeOf(function).Kind() != reflect.Func {
+		return "", errors.New("f is not a function")
+	}
+	funcName = runtime.FuncForPC(reflect.ValueOf(function).Pointer()).Name()
+	registered := p.server.IsTaskRegistered(funcName)
+	if !registered {
+		err = p.server.RegisterTask(funcName, function)
+		if err != nil {
+			return funcName, err
+		}
+	}
+	return funcName, nil
+}
+
 // Register registers a function as a runnable function in the process
 func (p Process) Register(funcName string, function interface{}) error {
 	err := p.server.RegisterTask(funcName, function)
@@ -102,18 +118,10 @@ func (p Process) Register(funcName string, function interface{}) error {
 
 // Invoke registers the func with it's reflect name, and sends the task
 func (p Process) Invoke(f interface{}, args []tasks.Arg) (jobID string, err error) {
-	if reflect.TypeOf(f).Kind() != reflect.Func {
-		return "", errors.New("f is not a function")
+	funcName, err := p.RegisterFunc(f)
+	if err != nil {
+		return "", err
 	}
-	funcName := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
-	registered := p.server.IsTaskRegistered(funcName)
-	if !registered {
-		err = p.server.RegisterTask(funcName, f)
-		if err != nil {
-			return "", err
-		}
-	}
-
 	return p.Call(funcName, args)
 }
 
