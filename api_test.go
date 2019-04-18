@@ -381,14 +381,14 @@ func TestHeaders(t *testing.T) {
 	assert.Equal(t, "bar", bar.Bar)
 }
 
-func TestWithInterrupCtx(t *testing.T) {
+func TestWithInterruptCtx(t *testing.T) {
 	jobID := uuid.New().String()
 	jq, err := OpenJobQuery("redis://localhost:6379")
 	require.NoError(t, err)
 	defer jq.Close()
 
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 	ctx = jq.WithInterruptCtx(ctx, jobID)
 
