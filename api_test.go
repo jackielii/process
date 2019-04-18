@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/google/uuid"
-	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -322,10 +322,12 @@ func TestNonBlockingClose(t *testing.T) {
 }
 
 func TestGracefulWait(t *testing.T) {
+	t.Skip("we need a dedicated process to this this one")
 	p, err := New("redis://localhost:6379")
 	require.NoError(t, err)
+	time.Sleep(500 * time.Millisecond)
 	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-	err = p.Wait()
+	err = p.WaitFor(time.Second)
 	assert.EqualError(t, err, "Worker quit gracefully")
 }
 

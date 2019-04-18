@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RichardKnop/machinery/v1"
+	"github.com/RichardKnop/machinery/v1/backends/result"
+	"github.com/RichardKnop/machinery/v1/config"
+	"github.com/RichardKnop/machinery/v1/log"
+	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/gomodule/redigo/redis"
-	"github.com/jackielii/machinery/v1"
-	"github.com/jackielii/machinery/v1/backends/result"
-	"github.com/jackielii/machinery/v1/config"
-	"github.com/jackielii/machinery/v1/log"
-	"github.com/jackielii/machinery/v1/tasks"
 	"github.com/pkg/errors"
 )
 
@@ -86,7 +86,7 @@ func (p *Process) WaitFor(d time.Duration) error {
 		runtime.SetFinalizer(p, nil)
 		p.closed = true
 		return err
-	case <-time.Tick(d):
+	case <-time.After(d):
 		return errors.New("timeout exceeded")
 	}
 }
