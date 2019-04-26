@@ -197,13 +197,18 @@ func OpenJobQuery(redisDSN string) (*JobQuery, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewJobQuery(redisConn), nil
+}
+
+// NewJobQuery creates a new job query
+func NewJobQuery(redisConn redis.Conn) *JobQuery {
 	done := make(chan struct{})
 	return &JobQuery{
 		redisConn: redisConn,
 		redisLock: &sync.Mutex{},
 		wg:        &sync.WaitGroup{},
 		done:      done,
-	}, nil
+	}
 }
 
 // Close cleans up the goroutines if any
@@ -356,6 +361,61 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 //     ch := p.ProgressChan(jobID)
 //     return context.WithValue(ctx, progressCtxKey, ch)
 // }
+
+// ProgressChanNoWait returns a receive only channel, and progress send to this channel will be set
+// Note that the error of the set progress is ignored
+// send to done channel cleans it up
+// the difference between this and ProgressChan is this will not wait for SetProgress to finish
+// in effect, it only sets the latest progress
+func (p JobQuery) ProgressChanNoWait(jobID string) chan<- string {
+	// defer func() {
+	//     fmt.Println("check progress exited")
+	// }()
+	pch := make(chan string)    // receives all progress
+	lpch := make(chan string)   // receives only latest progress
+	done := make(chan struct{}) // signal no more progress is here
+
+	p.wg.Add(1)
+	// go routine waiting for the latest progress
+	go func() {
+		defer p.wg.Done()
+		for {
+			select {
+			case progress := <-lpch:
+				err := p.SetProgress(jobID, progress)
+				if err != nil {
+					log.WARNING.Printf("failed to set progress for job id %s: %s, err: %v", jobID, progress, err)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	p.wg.Add(1)
+	// go routine sends only latest progress
+	go func() {
+		defer p.wg.Done()
+
+		var sentProgress, progress string
+		for {
+			select {
+			case lpch <- progress:
+				sentProgress = progress
+			case <-p.done:
+				// make sure the last message is sent
+				if sentProgress != progress {
+					lpch <- progress
+				}
+				close(done)
+				return
+			default:
+				progress = <-pch
+			}
+		}
+	}()
+	return pch
+}
 
 // ProgressChan returns a receive only channel, and progress send to this channel will be set
 // Note that the error of the set progress is ignored

@@ -12,6 +12,7 @@ import (
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/google/uuid"
+	"github.com/rafaeljusto/redigomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -401,4 +402,25 @@ func TestWithInterruptCtx(t *testing.T) {
 			jq.Interrupt(jobID)
 		}
 	}
+}
+
+func TestProgressNoWait(t *testing.T) {
+
+	c := redigomock.NewConn()
+	jobID := uuid.New().String()
+	jq := NewJobQuery(c)
+
+	ch := jq.ProgressChanNoWait(jobID)
+	cmd := c.Command("SET")
+	c.Command("EXPIRE")
+	c.Command("FLUSH")
+
+	for i := 0; i < 10; i++ {
+		// time.Sleep(100 * time.Millisecond)
+		ch <- strconv.Itoa(i)
+	}
+	require.NoError(t, jq.Close())
+	require.NoError(t, c.Err())
+
+	assert.Equal(t, c.Stats(cmd), 1, "should be called once")
 }
