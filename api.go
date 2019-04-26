@@ -382,6 +382,10 @@ func (p JobQuery) ProgressChanNoWait(jobID string) chan<- string {
 		for {
 			select {
 			case progress := <-lpch:
+				if progress == "" {
+					continue
+				}
+				// println("setting progress", jobID, progress)
 				err := p.SetProgress(jobID, progress)
 				if err != nil {
 					log.WARNING.Printf("failed to set progress for job id %s: %s, err: %v", jobID, progress, err)
@@ -410,7 +414,12 @@ func (p JobQuery) ProgressChanNoWait(jobID string) chan<- string {
 				close(done)
 				return
 			default:
-				progress = <-pch
+				select {
+				case progress = <-pch:
+				case <-p.done:
+					close(done)
+					return
+				}
 			}
 		}
 	}()
