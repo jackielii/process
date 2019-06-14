@@ -93,10 +93,10 @@ func (p *Process) WaitFor(d time.Duration) error {
 
 // RegisterFunc registers the function using it's reflection name
 func (p Process) RegisterFunc(function interface{}) (funcName string, err error) {
-	if reflect.TypeOf(function).Kind() != reflect.Func {
-		return "", errors.New("f is not a function")
+	funcName, err = fn(function)
+	if err != nil {
+		return "", err
 	}
-	funcName = runtime.FuncForPC(reflect.ValueOf(function).Pointer()).Name()
 	registered := p.server.IsTaskRegistered(funcName)
 	if !registered {
 		err = p.server.RegisterTask(funcName, function)
@@ -116,21 +116,37 @@ func (p Process) Register(funcName string, function interface{}) error {
 	return nil
 }
 
-// Invoke registers the func with it's reflect name, and sends the task
+// Invoke calls the func by its reflect name
 func (p Process) Invoke(f interface{}, args []tasks.Arg) (jobID string, err error) {
-	funcName, err := p.RegisterFunc(f)
+	return p.InvokeWithHeaders(f, args, nil)
+}
+
+// InvokeWithHeaders calls the function by its reflect name with headers
+func (p Process) InvokeWithHeaders(f interface{}, args []tasks.Arg, headers tasks.Headers) (jobID string, err error) {
+	funcName, err := fn(f)
 	if err != nil {
 		return "", err
 	}
-	return p.Call(funcName, args)
+	return p.CallWithHeaders(funcName, args, headers)
 }
 
 // Call calls a registered function, the arguments needs to be in the machinery []Arg format
 func (p Process) Call(funcName string, args []tasks.Arg) (jobID string, err error) {
+	return p.CallWithHeaders(funcName, args, nil)
+}
+
+// CallWithHeaders calls a register function with metadata
+func (p Process) CallWithHeaders(funcName string, args []tasks.Arg, headers tasks.Headers) (jobID string, err error) {
+	if !p.server.IsTaskRegistered(funcName) {
+		return "", errors.Errorf("function %s is not registered", funcName)
+	}
+
 	sig, err := tasks.NewSignature(funcName, args)
 	if err != nil {
 		return "", errors.Wrap(err, "process call")
 	}
+
+	sig.Headers = headers
 
 	r, err := p.server.SendTask(sig)
 	if err != nil {
@@ -583,4 +599,11 @@ func interruptSubject(jobID string) string {
 
 func headerSubject(jobID string) string {
 	return "headers_" + jobID
+}
+
+func fn(function interface{}) (string, error) {
+	if reflect.TypeOf(function).Kind() != reflect.Func {
+		return "", errors.New("f is not a function")
+	}
+	return runtime.FuncForPC(reflect.ValueOf(function).Pointer()).Name(), nil
 }

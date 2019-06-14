@@ -330,12 +330,56 @@ func TestGracefulWait(t *testing.T) {
 	assert.EqualError(t, err, "Worker quit gracefully")
 }
 
+func TestInvokeUnregistered(t *testing.T) {
+	p, err := New("redis://localhost:6379")
+	require.NoError(t, err)
+
+	_, err = p.Invoke(task, []tasks.Arg{
+		{
+			Type:  "string",
+			Value: "test invoke",
+		},
+	})
+	require.Error(t, err)
+}
+
+func TestCallWithHeaders(t *testing.T) {
+	p, err := New("redis://localhost:6379")
+	require.NoError(t, err)
+	task := func(ctx context.Context, msg string) (string, error) {
+		sig := tasks.SignatureFromContext(ctx)
+		assert.EqualValues(t, "bar", sig.Headers["foo"])
+		return "received " + msg, nil
+	}
+
+	p.RegisterFunc(task)
+
+	jobID, err := p.InvokeWithHeaders(
+		task,
+		[]tasks.Arg{
+			{
+				Type:  "string",
+				Value: "test invoke",
+			},
+		},
+		map[string]interface{}{
+			"foo": "bar",
+		},
+	)
+
+	r := p.GetResult(jobID)
+	_, err = r.Get(1 * time.Millisecond)
+	require.NoError(t, err)
+}
+
 func TestInvoke(t *testing.T) {
 	p, err := New("redis://localhost:6379")
 	require.NoError(t, err)
 	task := func(msg string) (string, error) {
 		return "received " + msg, nil
 	}
+
+	p.RegisterFunc(task)
 
 	jobID, err := p.Invoke(task, []tasks.Arg{
 		{

@@ -12,8 +12,8 @@ git.apache.org/thrift.git v0.0.0-20181218151757-9b75e4fe745a/go.mod h1:fPE2ZNJGy
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/RichardKnop/logging v0.0.0-20181101035820-b1d5d44c82d6 h1:Vgjpn7q8aQnye8nVJUboZbPd8DFLjYafgjJN2nO73xc=
 github.com/RichardKnop/logging v0.0.0-20181101035820-b1d5d44c82d6/go.mod h1:rJJ84PyA/Wlmw1hO+xTzV2wsSUon6J5ktg0g8BF2PuU=
-github.com/RichardKnop/machinery v1.6.2 h1:Mn53hDOPj9RF6Lt6HU8DVZCt5PTM4OoZydh3LO4L/ao=
-github.com/RichardKnop/machinery v1.6.2/go.mod h1:+QjVq/Z0aWiTc1O0lq34oK9PY6NzYjxVNlLlgTaqoJE=
+github.com/RichardKnop/machinery v1.6.5 h1:naU8+o/B1bdQeugr8MLXzoE3qCbeonBGlwOB0b2aL2Y=
+github.com/RichardKnop/machinery v1.6.5/go.mod h1:+QjVq/Z0aWiTc1O0lq34oK9PY6NzYjxVNlLlgTaqoJE=
 github.com/RichardKnop/redsync v1.2.0 h1:gK35hR3zZkQigHKm8wOGb9MpJ9BsrW6MzxezwjTcHP0=
 github.com/RichardKnop/redsync v1.2.0/go.mod h1:9b8nBGAX3bE2uCfJGSnsDvF23mKyHTZzmvmj5FH3Tp0=
 github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYUyUczH0OGQWaF5ceTx0UBShxjsH6f8oGKYe2c=
