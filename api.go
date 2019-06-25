@@ -21,6 +21,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var ErrUnknowJobID = errors.New("unknow job id")
+
 // Process is the process's base struct, use New to create a new instance
 type Process struct {
 	server   *machinery.Server
@@ -476,8 +478,8 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 	defer p.redisLock.Unlock()
 
 	s, err := redis.String(c.Do("GET", progressSubject(jobID)))
-	if err != redis.ErrNil {
-		return "", errors.New("unknow job id")
+	if err == redis.ErrNil {
+		return "", ErrUnknowJobID
 	}
 	if err != nil {
 		return "", err

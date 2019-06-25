@@ -44,6 +44,9 @@ func TestNewProcess(t *testing.T) {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
+		if err == ErrUnknowJobID {
+			continue
+		}
 		require.NoError(t, err)
 		if progress != prevProgress {
 			prevProgress = progress
@@ -200,6 +203,9 @@ func ExampleProcess() {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
+		if err == ErrUnknowJobID {
+			continue
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -294,6 +300,9 @@ func TestChannelAPI(t *testing.T) {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
+		if err == ErrUnknowJobID {
+			continue
+		}
 		require.NoError(t, err)
 		if progress != prevProgress {
 			prevProgress = progress
