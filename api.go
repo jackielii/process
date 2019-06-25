@@ -476,7 +476,10 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 	defer p.redisLock.Unlock()
 
 	s, err := redis.String(c.Do("GET", progressSubject(jobID)))
-	if err != nil && err != redis.ErrNil {
+	if err != redis.ErrNil {
+		return "", errors.New("unknow job id")
+	}
+	if err != nil {
 		return "", err
 	}
 	return s, nil
