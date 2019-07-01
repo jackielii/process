@@ -47,6 +47,7 @@ func New(redisDSN string) (*Process, error) {
 	worker := server.NewWorker("worker0", runtime.NumCPU())
 	worker.LaunchAsync(errChan)
 
+	// TODO: use redis pool
 	redisConn, err := redis.Dial("tcp", strings.Replace(redisDSN, "redis://", "", -1))
 	if err != nil {
 		return nil, errors.Wrap(err, "init new process")
@@ -211,6 +212,7 @@ type JobQuery struct {
 // OpenJobQuery returns a new job query
 func OpenJobQuery(redisDSN string) (*JobQuery, error) {
 	host := strings.Replace(redisDSN, "redis://", "", -1)
+	// TODO: use redis pool
 	redisConn, err := redis.Dial("tcp", host)
 	if err != nil {
 		return nil, err
