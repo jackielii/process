@@ -156,7 +156,20 @@ func (p Process) CallWithHeaders(funcName string, args []tasks.Arg, headers task
 		return "", errors.Wrapf(err, "call func %s", funcName)
 	}
 
-	return r.Signature.UUID, nil
+	// make sure progress is always set for once
+	jobID = r.Signature.UUID
+	jq, err := p.OpenJobQuery()
+	if err != nil {
+		return jobID, err
+	}
+	defer jq.Close()
+
+	err = jq.SetProgress(jobID, "")
+	if err != nil {
+		return jobID, err
+	}
+
+	return jobID, nil
 }
 
 // GetResult retrives a AsyncResult using the jobID

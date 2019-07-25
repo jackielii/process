@@ -209,6 +209,10 @@ func ExampleProcess() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		// first progress is empty default progres
+		if progress == "" {
+			continue
+		}
 		if progress != prevProgress {
 			prevProgress = progress
 			fmt.Println(progress)
@@ -482,4 +486,32 @@ func TestProgressNoWaitNonBlock(t *testing.T) {
 	jq.ProgressChanNoWait(jobID)
 	time.Sleep(100 * time.Millisecond)
 	jq.Close()
+}
+
+func TestProgressAlwaysSet(t *testing.T) {
+	p, err := New("redis://localhost:6379")
+	require.NoError(t, err)
+	task := func(ctx context.Context, msg string) (string, error) {
+		time.Sleep(3 * time.Second)
+		return "received " + msg, nil
+	}
+
+	p.RegisterFunc(task)
+
+	jobID, err := p.Invoke(task,
+		[]tasks.Arg{
+			{
+				Type:  "string",
+				Value: "test invoke",
+			},
+		},
+	)
+	require.NoError(t, err)
+
+	jq, err := p.OpenJobQuery()
+	require.NoError(t, err)
+
+	progress, err := jq.GetProgress(jobID)
+	require.NoError(t, err)
+	assert.Equal(t, progress, "")
 }
