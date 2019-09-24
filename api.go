@@ -23,6 +23,11 @@ import (
 
 var ErrUnknowJobID = errors.New("unknow job id")
 
+type (
+	Arg     = tasks.Arg
+	Headers = tasks.Headers
+)
+
 // Process is the process's base struct, use New to create a new instance
 type Process struct {
 	server   *machinery.Server
@@ -120,12 +125,12 @@ func (p Process) Register(funcName string, function interface{}) error {
 }
 
 // Invoke calls the func by its reflect name
-func (p Process) Invoke(f interface{}, args []tasks.Arg) (jobID string, err error) {
+func (p Process) Invoke(f interface{}, args []Arg) (jobID string, err error) {
 	return p.InvokeWithHeaders(f, args, nil)
 }
 
 // InvokeWithHeaders calls the function by its reflect name with headers
-func (p Process) InvokeWithHeaders(f interface{}, args []tasks.Arg, headers tasks.Headers) (jobID string, err error) {
+func (p Process) InvokeWithHeaders(f interface{}, args []Arg, headers Headers) (jobID string, err error) {
 	funcName, err := fn(f)
 	if err != nil {
 		return "", err
@@ -134,12 +139,12 @@ func (p Process) InvokeWithHeaders(f interface{}, args []tasks.Arg, headers task
 }
 
 // Call calls a registered function, the arguments needs to be in the machinery []Arg format
-func (p Process) Call(funcName string, args []tasks.Arg) (jobID string, err error) {
+func (p Process) Call(funcName string, args []Arg) (jobID string, err error) {
 	return p.CallWithHeaders(funcName, args, nil)
 }
 
 // CallWithHeaders calls a register function with metadata
-func (p Process) CallWithHeaders(funcName string, args []tasks.Arg, headers tasks.Headers) (jobID string, err error) {
+func (p Process) CallWithHeaders(funcName string, args []Arg, headers Headers) (jobID string, err error) {
 	if !p.server.IsTaskRegistered(funcName) {
 		return "", errors.Errorf("function %s is not registered", funcName)
 	}
