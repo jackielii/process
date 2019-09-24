@@ -1,4 +1,4 @@
-module github.com/jackielii/process
+module github.com/jackielii/process/v3
 
 go 1.12
 
