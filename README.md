@@ -1,5 +1,7 @@
 # process
 
+`import "github.com/jackielii/process/v5"`
+
 [![](https://godoc.org/github.com/jackielii/process?status.svg)](https://godoc.org/github.com/jackielii/process)
 [![Build Status](https://travis-ci.com/jackielii/process.svg?branch=master)](https://travis-ci.com/jackielii/process)
 
