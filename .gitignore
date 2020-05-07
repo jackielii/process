@@ -1,0 +1,33 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# git history files
+.history_rewritten_*
+
+# project artifacts
+.project
+
+# Intellij
+*.iml
+.idea
+
+# Visual Studio Code
+.vscode
+
+# vi backups
+*.bak
+
+# Golang
+.testCoverage.txt
+.testPkg.txt
+

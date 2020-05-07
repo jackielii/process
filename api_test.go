@@ -44,7 +44,7 @@ func TestNewProcess(t *testing.T) {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
-		if err == ErrUnknowJobID {
+		if err == ErrUnknownJobID {
 			continue
 		}
 		require.NoError(t, err)
@@ -203,7 +203,7 @@ func ExampleProcess() {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
-		if err == ErrUnknowJobID {
+		if err == ErrUnknownJobID {
 			continue
 		}
 		if err != nil {
@@ -304,7 +304,7 @@ func TestChannelAPI(t *testing.T) {
 			break
 		}
 		progress, err := j.GetProgress(jobID)
-		if err == ErrUnknowJobID {
+		if err == ErrUnknownJobID {
 			continue
 		}
 		require.NoError(t, err)
@@ -462,30 +462,32 @@ func TestWithInterruptCtx(t *testing.T) {
 func TestProgressNoWait(t *testing.T) {
 	c := redigomock.NewConn()
 	jobID := uuid.New().String()
-	jq := NewJobQuery(c)
+	jq, err := NewJobQuery(c)
+	require.Nil(t, err)
 
 	ch := jq.ProgressChanNoWait(jobID)
 	cmd := c.Command("SET")
 
 	for i := 0; i < 10; i++ {
-		// time.Sleep(100 * time.Millisecond)
 		ch <- strconv.Itoa(i)
 	}
+	time.Sleep(100 * time.Millisecond)
 	require.NoError(t, jq.Close())
 	require.NoError(t, c.Err())
 
-	assert.Truef(t, 10 > c.Stats(cmd), "should be called once")
+	assert.Equal(t, 10, c.Stats(cmd))
 }
 
 func TestProgressNoWaitNonBlock(t *testing.T) {
 
 	c := redigomock.NewConn()
 	jobID := uuid.New().String()
-	jq := NewJobQuery(c)
+	jq, err := NewJobQuery(c)
+	require.Nil(t, err)
 
 	jq.ProgressChanNoWait(jobID)
 	time.Sleep(100 * time.Millisecond)
-	jq.Close()
+	require.NoError(t, jq.Close())
 }
 
 func TestProgressAlwaysSet(t *testing.T) {

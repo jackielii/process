@@ -21,7 +21,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var ErrUnknowJobID = errors.New("unknow job id")
+var ErrUnknownJobID = errors.New("unknown job id")
 
 // Process is the process's base struct, use New to create a new instance
 type Process struct {
@@ -30,11 +30,13 @@ type Process struct {
 	worker   *machinery.Worker
 	redisDSN string
 
+	jobQueryOptions []JobQueryOption
+
 	closed bool
 }
 
 // New create a new process package, convention similiar to python's subprocess package
-func New(redisDSN string) (*Process, error) {
+func New(redisDSN string, jqOps ...JobQueryOption) (*Process, error) {
 	cfg := config.Config{
 		Broker:        redisDSN,
 		ResultBackend: redisDSN,
@@ -58,10 +60,11 @@ func New(redisDSN string) (*Process, error) {
 	}
 
 	p := &Process{
-		server:   server,
-		worker:   worker,
-		errChan:  errChan,
-		redisDSN: redisDSN,
+		server:          server,
+		worker:          worker,
+		errChan:         errChan,
+		redisDSN:        redisDSN,
+		jobQueryOptions: jqOps,
 	}
 	server.SetPreTaskHandler(p.prePublish)
 
@@ -179,7 +182,7 @@ func (p Process) GetResult(jobID string) *result.AsyncResult {
 
 // OpenJobQuery is a helper that returns a new job query
 func (p Process) OpenJobQuery() (*JobQuery, error) {
-	return OpenJobQuery(p.redisDSN)
+	return OpenJobQuery(p.redisDSN, p.jobQueryOptions...)
 }
 
 // Interrupt sends interrupt signal
@@ -220,32 +223,46 @@ type JobQuery struct {
 	redisLock *sync.Mutex
 	wg        *sync.WaitGroup
 	done      chan struct{}
+
+	progressExpSeconds  int64
+	interruptExpSeconds int64
 }
 
 // OpenJobQuery returns a new job query
-func OpenJobQuery(redisDSN string) (*JobQuery, error) {
+func OpenJobQuery(redisDSN string, options ...JobQueryOption) (*JobQuery, error) {
 	host := strings.Replace(redisDSN, "redis://", "", -1)
 	// TODO: use redis pool
 	redisConn, err := redis.Dial("tcp", host)
 	if err != nil {
 		return nil, err
 	}
-	return NewJobQuery(redisConn), nil
+	return NewJobQuery(redisConn, options...)
 }
 
 // NewJobQuery creates a new job query
-func NewJobQuery(redisConn redis.Conn) *JobQuery {
+func NewJobQuery(redisConn redis.Conn, options ...JobQueryOption) (*JobQuery, error) {
 	done := make(chan struct{})
-	return &JobQuery{
+	jq := &JobQuery{
 		redisConn: redisConn,
 		redisLock: &sync.Mutex{},
 		wg:        &sync.WaitGroup{},
 		done:      done,
+
+		interruptExpSeconds: 60 * 60,
+		progressExpSeconds:  60,
 	}
+
+	for _, o := range options {
+		if err := o(jq); err != nil {
+			return nil, err
+		}
+	}
+
+	return jq, nil
 }
 
 // Close cleans up the goroutines if any
-func (p JobQuery) Close() error {
+func (p *JobQuery) Close() error {
 	close(p.done)
 	p.wg.Wait()
 	return p.redisConn.Close()
@@ -253,7 +270,7 @@ func (p JobQuery) Close() error {
 
 // Interrupt sends a interrupt signal to the running job.
 // If the job implements subscribes to the job event, it should exit
-func (p JobQuery) Interrupt(jobID string) error {
+func (p *JobQuery) Interrupt(jobID string) error {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -263,7 +280,7 @@ func (p JobQuery) Interrupt(jobID string) error {
 	if err != nil {
 		return err
 	}
-	err = c.Send("EXPIRE", interruptSubject(jobID), 60*60) // expires in 1 hour
+	err = c.Send("EXPIRE", interruptSubject(jobID), p.interruptExpSeconds)
 	if err != nil {
 		return err
 	}
@@ -276,7 +293,7 @@ func (p JobQuery) Interrupt(jobID string) error {
 }
 
 // Interrupted checks if the job is interrupted synchronously
-func (p JobQuery) Interrupted(jobID string) bool {
+func (p *JobQuery) Interrupted(jobID string) bool {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -290,7 +307,7 @@ func (p JobQuery) Interrupted(jobID string) bool {
 }
 
 // WithInterruptCtx will cancel context if interrupted
-func (p JobQuery) WithInterruptCtx(ctx context.Context, jobID string) context.Context {
+func (p *JobQuery) WithInterruptCtx(ctx context.Context, jobID string) context.Context {
 	ctx, cancel := context.WithCancel(ctx)
 	p.wg.Add(1)
 	go func() {
@@ -320,13 +337,10 @@ func (p JobQuery) WithInterruptCtx(ctx context.Context, jobID string) context.Co
 }
 
 // InterruptedChan will notify the interruptChan if the job is interrupted
-func (p JobQuery) InterruptedChan(jobID string) <-chan struct{} {
+func (p *JobQuery) InterruptedChan(jobID string) <-chan struct{} {
 	interruptedChan := make(chan struct{})
 	p.wg.Add(1)
 	go func() {
-		// defer func() {
-		//     fmt.Println("check interrupted exited")
-		// }()
 		defer p.wg.Done()
 		for {
 			interrupted := p.Interrupted(jobID)
@@ -348,7 +362,7 @@ func (p JobQuery) InterruptedChan(jobID string) <-chan struct{} {
 
 // SetProgress sets the progress for a job
 // progress will expire in 1 minute
-func (p JobQuery) SetProgress(jobID string, progress string) error {
+func (p *JobQuery) SetProgress(jobID string, progress string) error {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -358,7 +372,7 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 	if err != nil {
 		return err
 	}
-	err = c.Send("EXPIRE", progressSubject(jobID), 60) // expires in one minute
+	err = c.Send("EXPIRE", progressSubject(jobID), p.progressExpSeconds)
 	if err != nil {
 		return err
 	}
@@ -398,74 +412,54 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 // ProgressChanNoWait returns a receive only channel, and progress send to this channel will be set
 // Note that the error of the set progress is ignored
 // send to done channel cleans it up
-// the difference between this and ProgressChan is this will not wait for SetProgress to finish
-// in effect, it only sets the latest progress
-func (p JobQuery) ProgressChanNoWait(jobID string) chan<- string {
-	// defer func() {
-	//     fmt.Println("check progress exited")
-	// }()
-	pch := make(chan string)    // receives all progress
-	lpch := make(chan string)   // receives only latest progress
+// the difference between this and ProgressChan is this will not wait for SetProgress to finish.
+func (p *JobQuery) ProgressChanNoWait(jobID string) chan<- string {
+	ch := make(chan string)
+	cch := make(chan string, 100)
 	done := make(chan struct{}) // signal no more progress is here
 
 	p.wg.Add(1)
-	// go routine waiting for the latest progress
 	go func() {
 		defer p.wg.Done()
 		for {
 			select {
-			case progress := <-lpch:
+			case progress := <-cch:
 				if progress == "" {
 					continue
 				}
-				// println("setting progress", jobID, progress)
 				err := p.SetProgress(jobID, progress)
 				if err != nil {
 					log.WARNING.Printf("failed to set progress for job id %s: %s, err: %v", jobID, progress, err)
 				}
 			case <-done:
 				return
+			default:
+				// Channel full. Discarding value
+				// Almost impossible
 			}
 		}
 	}()
 
 	p.wg.Add(1)
-	// go routine sends only latest progress
 	go func() {
 		defer p.wg.Done()
-
-		var sentProgress, progress string
 		for {
 			select {
-			case lpch <- progress:
-				sentProgress = progress
+			case progress := <-ch:
+				cch <- progress
 			case <-p.done:
-				// make sure the last message is sent
-				if sentProgress != progress {
-					lpch <- progress
-				}
 				close(done)
 				return
-			default:
-				select {
-				case progress = <-pch:
-				case <-p.done:
-					close(done)
-					return
-				}
 			}
 		}
 	}()
-	return pch
+	return ch
 }
 
 // ProgressChan returns a receive only channel, and progress send to this channel will be set
 // Note that the error of the set progress is ignored
 // send to done channel cleans it up
-func (p JobQuery) ProgressChan(jobID string) chan<- string {
-	// defer func() {
-	//     fmt.Println("check progress exited")
-	// }()
+func (p *JobQuery) ProgressChan(jobID string) chan<- string {
 	ch := make(chan string)
 	p.wg.Add(1)
 	go func() {
@@ -486,7 +480,7 @@ func (p JobQuery) ProgressChan(jobID string) chan<- string {
 }
 
 // GetProgress returns the progress if the job implements progress
-func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
+func (p *JobQuery) GetProgress(jobID string) (progress string, err error) {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -494,7 +488,7 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 
 	s, err := redis.String(c.Do("GET", progressSubject(jobID)))
 	if err == redis.ErrNil {
-		return "", ErrUnknowJobID
+		return "", ErrUnknownJobID
 	}
 	if err != nil {
 		return "", err
@@ -503,7 +497,7 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 }
 
 // AddHeaders adds headers to the job store
-func (p JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error {
+func (p *JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error {
 	for key, value := range headers {
 		err := p.AddHeader(jobID, key, value)
 		if err != nil {
@@ -514,7 +508,7 @@ func (p JobQuery) AddHeaders(jobID string, headers map[string]interface{}) error
 }
 
 // AddHeader persists data into redis so that it can be retrieved by GetHeader
-func (p JobQuery) AddHeader(jobID string, key string, value interface{}) (err error) {
+func (p *JobQuery) AddHeader(jobID string, key string, value interface{}) (err error) {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -560,7 +554,7 @@ func (p JobQuery) AddHeader(jobID string, key string, value interface{}) (err er
 }
 
 // GetHeader gets the header
-func (p JobQuery) GetHeader(jobID, key string) (interface{}, error) {
+func (p *JobQuery) GetHeader(jobID, key string) (interface{}, error) {
 	headers := make(map[string]interface{})
 	err := p.UnmarshalHeaders(jobID, &headers)
 	if err != nil {
@@ -575,7 +569,7 @@ func (p JobQuery) GetHeader(jobID, key string) (interface{}, error) {
 }
 
 // UnmarshalHeader unmarshal the header with key
-func (p JobQuery) UnmarshalHeader(jobID, key string, v interface{}) error {
+func (p *JobQuery) UnmarshalHeader(jobID, key string, v interface{}) error {
 	headers := make(map[string]json.RawMessage)
 	err := p.UnmarshalHeaders(jobID, &headers)
 	if err != nil {
@@ -591,7 +585,7 @@ func (p JobQuery) UnmarshalHeader(jobID, key string, v interface{}) error {
 }
 
 // UnmarshalHeaders unmarshals the headers
-func (p JobQuery) UnmarshalHeaders(jobID string, v interface{}) error {
+func (p *JobQuery) UnmarshalHeaders(jobID string, v interface{}) error {
 	c := p.redisConn
 
 	p.redisLock.Lock()
@@ -607,6 +601,26 @@ func (p JobQuery) UnmarshalHeaders(jobID string, v interface{}) error {
 		return errors.Wrap(err, "get header")
 	}
 	return nil
+}
+
+// JobQueryOption represents an option you can pass to NewJobQuery.
+// See the documentation for the individual options.
+type JobQueryOption func(*JobQuery) error
+
+// InterruptExpireSeconds set the interruptExpSeconds for the JobQuery
+func InterruptExpireSeconds(seconds int64) JobQueryOption {
+	return func(query *JobQuery) error {
+		query.interruptExpSeconds = seconds
+		return nil
+	}
+}
+
+// ProgressExpireSeconds set the progressExpSeconds for the JobQuery
+func ProgressExpireSeconds(seconds int64) JobQueryOption {
+	return func(query *JobQuery) error {
+		query.progressExpSeconds = seconds
+		return nil
+	}
 }
 
 func progressSubject(jobID string) string {
