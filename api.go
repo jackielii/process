@@ -21,6 +21,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	interruptExpiresIn = 60 * 60 * 24 // 24 hours
+	progressExpiresIn  = 60 * 60 * 24 // 24 hours
+)
+
 var ErrUnknowJobID = errors.New("unknow job id")
 
 type (
@@ -268,7 +273,7 @@ func (p JobQuery) Interrupt(jobID string) error {
 	if err != nil {
 		return err
 	}
-	err = c.Send("EXPIRE", interruptSubject(jobID), 60*60) // expires in 1 hour
+	err = c.Send("EXPIRE", interruptSubject(jobID), interruptExpiresIn)
 	if err != nil {
 		return err
 	}
@@ -363,7 +368,7 @@ func (p JobQuery) SetProgress(jobID string, progress string) error {
 	if err != nil {
 		return err
 	}
-	err = c.Send("EXPIRE", progressSubject(jobID), 60) // expires in one minute
+	err = c.Send("EXPIRE", progressSubject(jobID), progressExpiresIn)
 	if err != nil {
 		return err
 	}
