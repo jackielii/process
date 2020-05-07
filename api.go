@@ -26,7 +26,7 @@ const (
 	progressExpiresIn  = 60 * 60 * 24 // 24 hours
 )
 
-var ErrUnknowJobID = errors.New("unknow job id")
+var ErrUnknownJobID = errors.New("unknow job id")
 
 type (
 	Arg     = tasks.Arg
@@ -504,7 +504,7 @@ func (p JobQuery) GetProgress(jobID string) (progress string, err error) {
 
 	s, err := redis.String(c.Do("GET", progressSubject(jobID)))
 	if err == redis.ErrNil {
-		return "", ErrUnknowJobID
+		return "", ErrUnknownJobID
 	}
 	if err != nil {
 		return "", err
